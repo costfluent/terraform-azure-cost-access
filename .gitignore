@@ -1,0 +1,11 @@
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+# A saved plan can contain sensitive values, and these modules deal in credentials.
+tfplan
+*.tfplan
+crash.log
+crash.*.log
