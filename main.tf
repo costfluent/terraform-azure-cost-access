@@ -3,8 +3,8 @@
 # Costfluent collects through the Cost Details API
 # (POST {scope}/providers/Microsoft.CostManagement/generateCostDetailsReport), which Microsoft
 # offers only to Enterprise Agreement and Microsoft Customer Agreement billing accounts. A
-# subscription on the legacy pay-as-you-go program cannot be connected at all, and this module
-# cannot detect that from Terraform — scripts/verify-access.sh proves it after apply.
+# subscription on the legacy pay-as-you-go program cannot be connected at all, and Terraform cannot
+# detect that: Costfluent's own connection test is what proves it, by making the call.
 
 data "azuread_client_config" "current" {}
 
