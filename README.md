@@ -1,6 +1,6 @@
 # terraform-azure-cost-access
 
-Grants [Costfluent](https://costfluent.io) read-only access to one Azure subscription's cost data.
+Grants [Costfluent](https://costfluent.com) read-only access to one Azure subscription's cost data.
 
 The module registers a Microsoft Entra application, creates its service principal and client
 secret, and assigns **Cost Management Reader** at subscription scope. It replaces the manual
@@ -14,7 +14,7 @@ Costfluent asks for.
   to assign roles on the subscription (Owner or User Access Administrator).
 - A subscription on an **Enterprise Agreement** or **Microsoft Customer Agreement** billing
   account. Costfluent reads cost data through the Cost Details API, which Microsoft does not offer
-  on the legacy pay-as-you-go program. `scripts/verify-access.sh` tells you which you have.
+  on the legacy pay-as-you-go program. Costfluent's **Test connection** tells you which you have.
 
 ## Usage
 
@@ -43,13 +43,13 @@ Then:
 
 ```bash
 terraform apply
-
-# Confirm Azure will actually serve cost data to these credentials.
-terraform output -json credentials | ./scripts/verify-access.sh
-
-# Copy them into Costfluent → Providers → Add provider → Microsoft Azure.
 terraform output -raw credentials_json | pbcopy
 ```
+
+Paste into Costfluent → Providers → Add provider → Microsoft Azure, and use **Test connection**.
+That check is the one that matters: it issues a real Cost Details request with these credentials,
+so it proves Azure will actually serve your cost data. A successful `terraform apply` only proves
+the role assignment exists.
 
 Role assignments take a minute or two to propagate. A 403 immediately after apply is usually
 propagation, not a misconfiguration — re-run the verify script before changing anything.
