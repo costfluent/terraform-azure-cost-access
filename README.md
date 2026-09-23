@@ -78,7 +78,7 @@ not intend one, point the `azuread` provider at the subscription's tenant before
 
 | Name | Sensitive | Description |
 |------|-----------|-------------|
-| `credentials` | yes | Map of `tenant`, `appId`, `password`, `subscriptionId`. |
+| `credentials` | yes | Map of `tenant`, `appId`, `password`. |
 | `credentials_json` | yes | The same map as JSON, ready to paste into Costfluent. |
 | `tenant_id` | no | Entra tenant the application lives in. |
 | `client_id` | no | Application (client) ID. |

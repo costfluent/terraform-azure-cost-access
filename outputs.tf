@@ -3,10 +3,9 @@
 # breaks every connection made with this module; scripts/check-integration-contract.py asserts it.
 locals {
   credentials = {
-    tenant         = data.azuread_client_config.current.tenant_id
-    appId          = azuread_application.costfluent.client_id
-    password       = azuread_service_principal_password.costfluent.value
-    subscriptionId = var.subscription_id
+    tenant   = data.azuread_client_config.current.tenant_id
+    appId    = azuread_application.costfluent.client_id
+    password = azuread_service_principal_password.costfluent.value
   }
 }
 
