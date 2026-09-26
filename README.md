@@ -9,7 +9,7 @@ Costfluent asks for.
 
 ## Requirements
 
-- Terraform >= 1.5
+- Terraform >= 1.13
 - Permission to register an application in the Entra tenant (Application Developer or higher) and
   to assign roles on the subscription (Owner or User Access Administrator).
 - A subscription on an **Enterprise Agreement** or **Microsoft Customer Agreement** billing
@@ -28,7 +28,7 @@ provider "azuread" {}
 
 module "costfluent" {
   source  = "costfluent/cost-access/azure"
-  version = "~> 1.0"
+  version = "~> 0.2"
 
   subscription_id = "00000000-0000-0000-0000-000000000000"
 }
@@ -52,7 +52,8 @@ so it proves Azure will actually serve your cost data. A successful `terraform a
 the role assignment exists.
 
 Role assignments take a minute or two to propagate. A 403 immediately after apply is usually
-propagation, not a misconfiguration — re-run the verify script before changing anything.
+propagation, not a misconfiguration: wait and run **Test connection** again before changing
+anything.
 
 ## One tenant
 
@@ -60,8 +61,8 @@ The application is registered in whichever tenant the `azuread` provider authent
 while the role is assigned in the subscription's own tenant. When those differ, Terraform still
 succeeds and collection later fails with an opaque access error, because Microsoft supports
 cross-tenant Cost Management only partially. The module raises a warning at plan time when it sees
-that mismatch rather than refusing, since a deliberate cross-tenant setup can work — but if you did
-not intend one, point the `azuread` provider at the subscription's tenant before applying.
+that mismatch rather than refusing, since a deliberate cross-tenant setup can work. If you did not
+intend one, point the `azuread` provider at the subscription's tenant before applying.
 
 ## Inputs
 
@@ -92,7 +93,7 @@ The credential field names are Costfluent's contract. Do not rename them on the 
 
 ## Permissions granted
 
-`Cost Management Reader` at `/subscriptions/<subscription_id>` — read-only access to cost and
+`Cost Management Reader` at `/subscriptions/<subscription_id>`: read-only access to cost and
 usage data, and nothing else. It grants no access to resource contents, configuration, or data
 planes.
 
