@@ -27,11 +27,14 @@ variable "role_definition_names" {
     Built-in roles assigned to the service principal at subscription scope.
 
     "Cost Management Reader" is what Microsoft documents for reading cost data at subscription
-    scope, and is all Costfluent needs. Add "Reader" only if you also want Costfluent to resolve
-    resource metadata, and note that it grants read access to every resource in the subscription.
+    scope, and "Carbon Optimization Reader" what it documents for reading the subscription's
+    carbon emissions; together they are all Costfluent needs. Drop "Carbon Optimization Reader" to
+    leave the carbon footprint report empty for this subscription. Add "Reader" only if you also
+    want Costfluent to resolve resource metadata, and note that it grants read access to every
+    resource in the subscription.
   EOT
   type        = list(string)
-  default     = ["Cost Management Reader"]
+  default     = ["Cost Management Reader", "Carbon Optimization Reader"]
 
   validation {
     condition     = length(var.role_definition_names) > 0
@@ -41,8 +44,9 @@ variable "role_definition_names" {
 
 variable "secret_expiry_days" {
   description = <<-EOT
-    Lifetime of the client secret. The secret is re-created on the first apply after it expires,
-    so re-run this module on that schedule and hand the new secret to Costfluent.
+    Lifetime of the client secret. The first apply from secret_rotation_days_before_expiry days
+    before it expires creates a new one, so re-run this module inside that window and hand the new
+    secret to Costfluent.
   EOT
   type        = number
   default     = 365
@@ -50,6 +54,21 @@ variable "secret_expiry_days" {
   validation {
     condition     = var.secret_expiry_days >= 1 && var.secret_expiry_days <= 730
     error_message = "Must be between 1 and 730 days (Entra caps application secrets at two years)."
+  }
+}
+
+variable "secret_rotation_days_before_expiry" {
+  description = <<-EOT
+    How many days before the client secret expires an apply starts replacing it. An apply inside
+    this window rotates the secret while the old one still works; an apply before it leaves the
+    secret alone. Defaults to 30, or half of secret_expiry_days rounded down when that is shorter.
+  EOT
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.secret_rotation_days_before_expiry == null ? true : (var.secret_rotation_days_before_expiry >= 1 && var.secret_rotation_days_before_expiry < var.secret_expiry_days)
+    error_message = "Must be at least 1 and less than secret_expiry_days, so the secret is replaceable before it expires and not at creation."
   }
 }
 

@@ -16,6 +16,11 @@ locals {
   # An ownerless app registration is nobody's to rotate or delete, so the caller owns it by default.
   owners = length(var.owners) > 0 ? var.owners : [data.azuread_client_config.current.object_id]
 
+  secret_rotation_days_before_expiry = coalesce(
+    var.secret_rotation_days_before_expiry,
+    min(30, floor(var.secret_expiry_days / 2)),
+  )
+
   purpose = "Read-only Azure Cost Management access for Costfluent, scoped to subscription ${var.subscription_id}."
 }
 
@@ -59,15 +64,17 @@ resource "azuread_service_principal" "costfluent" {
 }
 
 # Drives the secret's lifetime from state rather than from wall-clock time at plan. Using
-# timeadd(timestamp(), ...) here would re-plan the credential on every single run.
+# timeadd(timestamp(), ...) here would re-plan the credential on every single run. The timer comes
+# due before the secret expires, so an apply inside that window replaces the secret while the old
+# one still works; a timer due at the expiry instant itself would always leave a gap.
 resource "time_rotating" "secret" {
-  rotation_days = var.secret_expiry_days
+  rotation_days = var.secret_expiry_days - local.secret_rotation_days_before_expiry
 }
 
 resource "azuread_service_principal_password" "costfluent" {
   service_principal_id = azuread_service_principal.costfluent.id
   display_name         = "costfluent-terraform"
-  end_date             = time_rotating.secret.rotation_rfc3339
+  end_date             = timeadd(time_rotating.secret.rfc3339, "${var.secret_expiry_days * 24}h")
 
   rotate_when_changed = {
     rotation = time_rotating.secret.id

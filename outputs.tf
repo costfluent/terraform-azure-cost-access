@@ -1,6 +1,6 @@
-# The credential field names are the contract Costfluent validates against
-# (ProviderDefinitions.Azure.RequiredCredentialFields in the Costfluent backend). Renaming one here
-# breaks every connection made with this module; scripts/check-integration-contract.py asserts it.
+# The credential field names are the contract Costfluent validates against: the credential fields
+# it requires of an Azure connection. Renaming one here
+# breaks every connection made with this module, and Costfluent's own build checks it.
 locals {
   credentials = {
     tenant   = data.azuread_client_config.current.tenant_id
@@ -52,6 +52,11 @@ output "assigned_roles" {
 }
 
 output "secret_expires_at" {
-  description = "RFC3339 instant the client secret stops working. Re-apply before it to rotate."
+  description = "RFC3339 instant the client secret stops working. The first apply at or after secret_rotates_at replaces it before this instant."
   value       = azuread_service_principal_password.costfluent.end_date
+}
+
+output "secret_rotates_at" {
+  description = "RFC3339 instant from which an apply replaces the client secret, secret_rotation_days_before_expiry days before secret_expires_at. An apply before it leaves the secret alone."
+  value       = time_rotating.secret.rotation_rfc3339
 }
