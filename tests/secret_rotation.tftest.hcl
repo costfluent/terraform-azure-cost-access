@@ -55,6 +55,37 @@ run "the_default_secret_rotates_thirty_days_before_it_expires" {
     condition     = output.secret_rotates_at == time_rotating.secret.rotation_rfc3339
     error_message = "secret_rotates_at must be the instant from which an apply replaces the secret."
   }
+
+  assert {
+    condition     = azuread_service_principal_password.costfluent.rotate_when_changed.rotation == time_rotating.secret.id
+    error_message = "The secret must be keyed on the timer's id, so it is replaced when the timer comes due."
+  }
+}
+
+# The time provider drops a due timer from state at refresh, so the next apply creates it anew;
+# replace stands in for that, and the override gives the new timer an id the first run's cannot
+# share within the same second. The mocked azuread provider plans no replacement of its own, so
+# the run pins that the password's replacement trigger follows the new timer, not the replacement.
+run "a_fired_timer_replaces_the_secret" {
+  command = apply
+
+  plan_options {
+    replace = [time_rotating.secret]
+  }
+
+  override_resource {
+    target = time_rotating.secret
+    values = {
+      id               = "2027-09-29T00:00:00Z"
+      rfc3339          = "2027-09-29T00:00:00Z"
+      rotation_rfc3339 = "2028-08-29T00:00:00Z"
+    }
+  }
+
+  assert {
+    condition     = azuread_service_principal_password.costfluent.rotate_when_changed.rotation == "2027-09-29T00:00:00Z"
+    error_message = "An apply after the timer fires must key the secret on the new timer, which replaces it."
+  }
 }
 
 run "a_short_lifetime_rotates_one_day_after_creation_at_the_longest_lead" {

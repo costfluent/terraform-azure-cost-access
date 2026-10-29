@@ -4,14 +4,19 @@ Grants [Costfluent](https://costfluent.com) read-only access to one Azure subscr
 
 The module registers a Microsoft Entra application, creates its service principal and client
 secret, and assigns **Cost Management Reader** and **Carbon Optimization Reader** at subscription
-scope. It replaces the manual `az ad sp create-for-rbac` + `az role assignment create` sequence,
-and outputs the three fields Costfluent asks for: `tenant`, `appId` and `password`.
+scope. With `commitment_roles`, it also assigns **Reservations Reader** and **Savings plan Reader**
+for the tenant, so Costfluent lists your reservations and savings plans. It replaces the manual
+`az ad sp create-for-rbac` + `az role assignment create` sequence, and outputs the three fields
+Costfluent asks for: `tenant`, `appId` and `password`.
 
 ## Requirements
 
 - Terraform >= 1.13
 - Permission to register an application in the Entra tenant (Application Developer or higher) and
   to assign roles on the subscription (Owner or User Access Administrator).
+- For `commitment_roles` only: User Access Administrator at the tenant root, which a Global
+  Administrator gets by
+  [elevating access](https://learn.microsoft.com/en-us/azure/role-based-access-control/elevate-access-global-admin).
 - A subscription on an **Enterprise Agreement** or **Microsoft Customer Agreement** billing
   account. Costfluent reads cost data through the Cost Details API, which Microsoft does not offer
   on the legacy pay-as-you-go program. Costfluent's **Test Connection** tells you which you have.
@@ -31,6 +36,10 @@ module "costfluent" {
   version = "~> 0.2"
 
   subscription_id = "00000000-0000-0000-0000-000000000000"
+
+  # Optional: true also lets Costfluent list the tenant's reservations and savings plans. Applying
+  # it needs User Access Administrator at the tenant root (see Permissions granted).
+  commitment_roles = false
 }
 
 output "costfluent_credentials" {
@@ -73,6 +82,7 @@ intend one, point the `azuread` provider at the subscription's tenant before app
 | `subscription_id` | Subscription to collect cost data from. Canonical lower-case GUID. | `string` | required |
 | `application_display_name` | Display name of the Entra application registration. | `string` | `"Costfluent Integration"` |
 | `role_definition_names` | Built-in roles assigned at subscription scope. | `list(string)` | `["Cost Management Reader", "Carbon Optimization Reader"]` |
+| `commitment_roles` | Also assign Reservations Reader at `/providers/Microsoft.Capacity` and Savings plan Reader at `/providers/Microsoft.BillingBenefits`, for the tenant's reservations and savings plans. Needs User Access Administrator at the tenant root. | `bool` | `false` |
 | `secret_expiry_days` | Client secret lifetime, 1–730. | `number` | `365` |
 | `secret_rotation_days_before_expiry` | Days before expiry from which an apply replaces the secret, at least 1 and less than `secret_expiry_days`. | `number` | 30, or half of `secret_expiry_days` when shorter |
 | `owners` | Object IDs owning the app and service principal. Defaults to the caller. | `list(string)` | `[]` |
@@ -89,7 +99,7 @@ intend one, point the `azuread` provider at the subscription's tenant before app
 | `service_principal_object_id` | no | Object ID holding the role assignments. |
 | `subscription_id` | no | Subscription the roles were assigned on. |
 | `subscription_display_name` | no | That subscription's name, to confirm you targeted the right one. |
-| `assigned_roles` | no | Roles actually assigned. |
+| `assigned_roles` | no | Roles assigned at subscription scope. |
 | `secret_expires_at` | no | When the secret stops working. |
 | `secret_rotates_at` | no | From when an apply replaces the secret. |
 
@@ -105,6 +115,14 @@ planes.
 provider-reported carbon emissions (`Microsoft.Carbon/carbonEmissionReports/read` and `/action`),
 for Costfluent's carbon footprint report, and nothing else. Leave it out of
 `role_definition_names` and that report stays empty for this subscription.
+
+`Reservations Reader` at `/providers/Microsoft.Capacity` and `Savings plan Reader` at
+`/providers/Microsoft.BillingBenefits`, only when `commitment_roles` is `true`: read-only access to
+every reservation and savings plan in the tenant, not only this subscription's, for Costfluent's
+**Commitments** list. Neither can buy, change or cancel one. Microsoft grants these roles only at
+these tenant-level scopes, and only a User Access Administrator at the tenant root can assign them
+there; in the Azure portal, only Global Administrators can. Left `false`, Costfluent lists no Azure
+reservations or savings plans for this connection, and everything else works as before.
 
 Add `"Reader"` to `role_definition_names` only if you want Costfluent to resolve resource metadata
 as well; it grants read access to every resource in the subscription, which most customers do not
