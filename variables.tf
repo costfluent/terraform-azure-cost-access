@@ -42,6 +42,22 @@ variable "role_definition_names" {
   }
 }
 
+variable "commitment_roles" {
+  description = <<-EOT
+    Also assign "Reservations Reader" at /providers/Microsoft.Capacity and "Savings plan Reader" at
+    /providers/Microsoft.BillingBenefits, so Costfluent lists the tenant's reservations and savings
+    plans under Commitments. Both are read-only, and they read every reservation and savings plan in
+    the tenant, not only this subscription's.
+
+    Only a User Access Administrator at the tenant root can assign roles at these scopes: a Global
+    Administrator who has elevated access (in the Azure portal, only Global Administrators can assign
+    them). Apply with that access, or leave this false and Costfluent lists no Azure reservations or
+    savings plans for this connection.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "secret_expiry_days" {
   description = <<-EOT
     Lifetime of the client secret. The first apply from secret_rotation_days_before_expiry days

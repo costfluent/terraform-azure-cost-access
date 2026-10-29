@@ -1,4 +1,5 @@
-# Grants Costfluent read-only access to one Azure subscription's cost data.
+# Grants Costfluent read-only access to one Azure subscription's cost data and, when
+# commitment_roles is set, to the tenant's reservations and savings plans.
 #
 # Costfluent collects through the Cost Details API
 # (POST {scope}/providers/Microsoft.CostManagement/generateCostDetailsReport), which Microsoft
@@ -93,5 +94,29 @@ resource "azurerm_role_assignment" "costfluent" {
   # A freshly created service principal has not replicated across Entra yet, so the ARM-side
   # existence check fails intermittently on a first apply. The principal is created above in the
   # same graph, so the check adds nothing but flakiness.
+  skip_service_principal_aad_check = true
+}
+
+locals {
+  # Microsoft grants these readers only at their resource provider's tenant-level scope, never on a
+  # subscription, and only a User Access Administrator at the tenant root can assign them there.
+  commitment_roles = {
+    "Reservations Reader" = "/providers/Microsoft.Capacity"
+    "Savings plan Reader" = "/providers/Microsoft.BillingBenefits"
+  }
+}
+
+# Read-only, but for the whole tenant: every reservation and savings plan in it, which Costfluent
+# lists under Commitments. Opt-in, because applying it needs elevated access most callers lack.
+resource "azurerm_role_assignment" "commitments" {
+  for_each = var.commitment_roles ? local.commitment_roles : {}
+
+  scope                = each.value
+  role_definition_name = each.key
+  principal_id         = azuread_service_principal.costfluent.object_id
+  principal_type       = "ServicePrincipal"
+  description          = "Read-only access for Costfluent to this tenant's reservations and savings plans, for the connection of subscription ${var.subscription_id}."
+
+  # As above: the principal is created in the same graph.
   skip_service_principal_aad_check = true
 }

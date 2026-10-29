@@ -1,7 +1,8 @@
 module "costfluent" {
   source = "../.."
 
-  subscription_id = var.subscription_id
+  subscription_id  = var.subscription_id
+  commitment_roles = var.commitment_roles
 }
 
 output "credentials" {
