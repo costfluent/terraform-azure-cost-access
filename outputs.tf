@@ -37,7 +37,7 @@ output "service_principal_object_id" {
 }
 
 output "subscription_id" {
-  description = "Subscription the role assignments were made on."
+  description = "Subscription the connection is anchored on."
   value       = var.subscription_id
 }
 
@@ -47,8 +47,17 @@ output "subscription_display_name" {
 }
 
 output "assigned_roles" {
-  description = "Roles assigned to the service principal at subscription scope."
+  description = "Roles assigned to the service principal on every subscription and management group in assignment_scopes."
   value       = sort(keys(azurerm_role_assignment.costfluent))
+}
+
+output "assignment_scopes" {
+  description = "Resource IDs of every subscription and management group the roles are assigned on, sorted."
+  value = sort(concat(
+    [data.azurerm_subscription.target.id],
+    [for subscription in data.azurerm_subscription.additional : subscription.id],
+    [for group in data.azurerm_management_group.scope : group.id],
+  ))
 }
 
 output "secret_expires_at" {

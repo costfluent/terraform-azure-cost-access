@@ -1,17 +1,20 @@
 # terraform-azure-cost-access
 
-Grants [Costfluent](https://costfluent.com) read-only access to one Azure subscription's cost data.
+Grants [Costfluent](https://costfluent.com) read-only access to the cost data of one Azure
+subscription, of more subscriptions in the same tenant, or of whole management groups, through one
+connection.
 
 The module registers a Microsoft Entra application, creates its service principal and client
-secret, and assigns **Cost Management Reader** and **Carbon Optimization Reader** at subscription
-scope. With `commitment_roles`, it also assigns **Reservations Reader** and **Savings plan Reader**
+secret, and assigns **Cost Management Reader** and **Carbon Optimization Reader** on the
+subscription and on every further subscription and management group you list. With `commitment_roles`, it also assigns **Reservations Reader** and **Savings plan Reader**
 for the tenant, so Costfluent lists your reservations and savings plans. It replaces the manual
 `az ad sp create-for-rbac` + `az role assignment create` sequence, and outputs the three fields
 Costfluent asks for: `tenant`, `appId` and `password`.
 
 ## Requirements
 
-- Terraform >= 1.13
+- Terraform >= 1.9 or OpenTofu >= 1.12, with the providers azuread >= 3.7.0, < 4.0.0, azurerm
+  >= 5.0.0, < 6.0.0 and time >= 0.9.1, < 1.0.0.
 - Permission to register an application in the Entra tenant (Application Developer or higher) and
   to assign roles on the subscription (Owner or User Access Administrator).
 - For `commitment_roles` only: User Access Administrator at the tenant root, which a Global
@@ -33,7 +36,7 @@ provider "azuread" {}
 
 module "costfluent" {
   source  = "costfluent/cost-access/azure"
-  version = "~> 0.2"
+  version = "~> 0.5"
 
   subscription_id = "00000000-0000-0000-0000-000000000000"
 
@@ -66,25 +69,62 @@ Role assignments take a minute or two to propagate. A 403 immediately after appl
 propagation, not a misconfiguration: wait and run **Test Connection** again before changing
 anything.
 
+## Several subscriptions
+
+One connection can collect a whole estate. List further subscriptions in
+`additional_subscription_ids`, or name management groups in `management_group_ids` so every
+subscription under them, including ones created later, inherits the roles:
+
+```hcl
+provider "azurerm" {
+  subscription_id = "00000000-0000-0000-0000-000000000000"
+  features {}
+}
+
+provider "azuread" {}
+
+module "costfluent" {
+  source  = "costfluent/cost-access/azure"
+  version = "~> 0.5"
+
+  subscription_id             = "00000000-0000-0000-0000-000000000000"
+  additional_subscription_ids = ["11111111-1111-1111-1111-111111111111"]
+  management_group_ids        = ["finance"]
+}
+```
+
+`subscription_id` stays the subscription the connection is anchored on. When you connect,
+Costfluent lists every subscription the service principal can read and keeps each one that serves
+cost data; it has about 90 seconds to check them, so in a large estate some are left for its daily
+health check, which adds them without a new connection. A subscription another Costfluent
+connection already collects stays with that connection. Assigning at a management group needs
+Owner or User Access Administrator on it, and the tenant root group's ID is the tenant ID.
+`assignment_scopes` lists every scope the roles were assigned on.
+
 ## One tenant
 
 The application is registered in whichever tenant the `azuread` provider authenticates against,
-while the role is assigned in the subscription's own tenant. When those differ, Terraform still
+while the roles are assigned in each subscription's own tenant, and management groups are read
+through the `azurerm` provider's tenant. When those differ, Terraform still
 succeeds and collection later fails with an opaque access error, because Microsoft supports
 cross-tenant Cost Management only partially. The module raises a warning at plan time when it sees
-that mismatch rather than refusing, since a deliberate cross-tenant setup can work. If you did not
-intend one, point the `azuread` provider at the subscription's tenant before applying.
+that mismatch, for `subscription_id`, every additional subscription and every management group,
+rather than refusing, since a deliberate cross-tenant setup can work. If you did not intend one,
+point both providers at the subscriptions' tenant before applying, and connect each tenant with its
+own module call.
 
 ## Inputs
 
 | Name | Description | Type | Default |
 |------|-------------|------|---------|
-| `subscription_id` | Subscription to collect cost data from. Canonical lower-case GUID. | `string` | required |
+| `subscription_id` | Subscription the connection is anchored on. Canonical lower-case GUID. | `string` | required |
+| `additional_subscription_ids` | More subscriptions in the same tenant to assign the roles on. | `set(string)` | `[]` |
+| `management_group_ids` | Management group IDs to assign the roles on, inherited by every subscription under them. | `set(string)` | `[]` |
 | `application_display_name` | Display name of the Entra application registration. | `string` | `"Costfluent Integration"` |
-| `role_definition_names` | Built-in roles assigned at subscription scope. | `list(string)` | `["Cost Management Reader", "Carbon Optimization Reader"]` |
+| `role_definition_names` | Built-in roles assigned on every subscription and management group. | `list(string)` | `["Cost Management Reader", "Carbon Optimization Reader"]` |
 | `commitment_roles` | Also assign Reservations Reader at `/providers/Microsoft.Capacity` and Savings plan Reader at `/providers/Microsoft.BillingBenefits`, for the tenant's reservations and savings plans. Needs User Access Administrator at the tenant root. | `bool` | `false` |
-| `secret_expiry_days` | Client secret lifetime, 1–730. | `number` | `365` |
-| `secret_rotation_days_before_expiry` | Days before expiry from which an apply replaces the secret, at least 1 and less than `secret_expiry_days`. | `number` | 30, or half of `secret_expiry_days` when shorter |
+| `secret_expiry_days` | Client secret lifetime, 2–730. | `number` | `365` |
+| `secret_rotation_days_before_expiry` | Days before expiry from which an apply replaces the secret, at least 1 and less than `secret_expiry_days`. | `number` | `null`: 30, or half of `secret_expiry_days` when shorter |
 | `owners` | Object IDs owning the app and service principal. Defaults to the caller. | `list(string)` | `[]` |
 | `tags` | Directory tags on the app and service principal. | `list(string)` | `["costfluent", "cost-management", "terraform"]` |
 
@@ -97,9 +137,10 @@ intend one, point the `azuread` provider at the subscription's tenant before app
 | `tenant_id` | no | Entra tenant the application lives in. |
 | `client_id` | no | Application (client) ID. |
 | `service_principal_object_id` | no | Object ID holding the role assignments. |
-| `subscription_id` | no | Subscription the roles were assigned on. |
+| `subscription_id` | no | Subscription the connection is anchored on. |
 | `subscription_display_name` | no | That subscription's name, to confirm you targeted the right one. |
-| `assigned_roles` | no | Roles assigned at subscription scope. |
+| `assigned_roles` | no | Roles assigned on every scope in `assignment_scopes`. |
+| `assignment_scopes` | no | Resource IDs of every subscription and management group the roles are assigned on. |
 | `secret_expires_at` | no | When the secret stops working. |
 | `secret_rotates_at` | no | From when an apply replaces the secret. |
 
@@ -107,9 +148,12 @@ The credential field names are Costfluent's contract. Do not rename them on the 
 
 ## Permissions granted
 
-`Cost Management Reader` at `/subscriptions/<subscription_id>`: read-only access to cost and
-usage data, and nothing else. It grants no access to resource contents, configuration, or data
-planes.
+`Cost Management Reader` at `/subscriptions/<subscription_id>`, at each subscription in
+`additional_subscription_ids` and at each management group in `management_group_ids`: read-only
+access to cost and usage data. It grants no access to resource contents, configuration, or data
+planes. Microsoft's role also carries `Microsoft.Support/*`, which can open and read support
+requests and which Costfluent never calls; at a management group it reaches every subscription
+under the group.
 
 `Carbon Optimization Reader` at the same scope: read-only access to the subscription's
 provider-reported carbon emissions (`Microsoft.Carbon/carbonEmissionReports/read` and `/action`),

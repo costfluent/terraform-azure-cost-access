@@ -140,3 +140,39 @@ run "a_lead_below_one_day_is_refused" {
 
   expect_failures = [var.secret_rotation_days_before_expiry]
 }
+
+# The default lead is half the lifetime rounded down, which is zero for one day: the timer would come
+# due at the instant the secret expires, so an apply could never replace it while it still works.
+run "a_one_day_lifetime_with_the_default_lead_is_refused" {
+  command = plan
+
+  variables {
+    secret_expiry_days = 1
+  }
+
+  expect_failures = [var.secret_expiry_days]
+}
+
+run "a_one_day_lifetime_with_any_lead_is_refused" {
+  command = plan
+
+  variables {
+    secret_expiry_days                 = 1
+    secret_rotation_days_before_expiry = 1
+  }
+
+  expect_failures = [var.secret_expiry_days]
+}
+
+run "a_two_day_lifetime_rotates_one_day_early_by_default" {
+  command = apply
+
+  variables {
+    secret_expiry_days = 2
+  }
+
+  assert {
+    condition     = timeadd(time_rotating.secret.rotation_rfc3339, "24h") == azuread_service_principal_password.costfluent.end_date
+    error_message = "With no lead given, a two-day secret must rotate one day before it expires."
+  }
+}

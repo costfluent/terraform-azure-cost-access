@@ -46,16 +46,16 @@ run "a_secret_lifetime_of_730_days_is_accepted" {
   }
 }
 
-run "a_secret_lifetime_of_one_day_is_accepted" {
+run "a_secret_lifetime_of_two_days_is_accepted" {
   command = plan
 
   variables {
-    secret_expiry_days = 1
+    secret_expiry_days = 2
   }
 
   assert {
     condition     = time_rotating.secret.rotation_days == 1
-    error_message = "A one-day secret is the shortest lifetime the module allows and must be accepted."
+    error_message = "A two-day secret is the shortest lifetime the module allows and must be accepted, rotating one day before it expires."
   }
 }
 

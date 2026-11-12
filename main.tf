@@ -1,5 +1,6 @@
-# Grants Costfluent read-only access to one Azure subscription's cost data and, when
-# commitment_roles is set, to the tenant's reservations and savings plans.
+# Grants Costfluent read-only access to the cost data of one Azure subscription, of any more
+# subscriptions and management groups you list, and, when commitment_roles is set, to the tenant's
+# reservations and savings plans.
 #
 # Costfluent collects through the Cost Details API
 # (POST {scope}/providers/Microsoft.CostManagement/generateCostDetailsReport), which Microsoft
@@ -11,6 +12,18 @@ data "azuread_client_config" "current" {}
 
 data "azurerm_subscription" "target" {
   subscription_id = var.subscription_id
+}
+
+data "azurerm_subscription" "additional" {
+  for_each = var.additional_subscription_ids
+
+  subscription_id = each.key
+}
+
+data "azurerm_management_group" "scope" {
+  for_each = var.management_group_ids
+
+  name = each.key
 }
 
 locals {
@@ -39,6 +52,41 @@ check "single_tenant" {
       "Point the azuread provider at the subscription's tenant.",
     ])
   }
+
+  assert {
+    condition = length(local.subscriptions_in_another_tenant) == 0
+    error_message = join("", [
+      "Subscriptions ${join(", ", local.subscriptions_in_another_tenant)} belong to another tenant than ",
+      "${data.azuread_client_config.current.tenant_id}, where the application would be registered. ",
+      "Connect each tenant with its own module call.",
+    ])
+  }
+
+  assert {
+    condition = length(local.management_groups_in_another_tenant) == 0
+    error_message = join("", [
+      "Management groups ${join(", ", local.management_groups_in_another_tenant)} are read through the azurerm provider's tenant, ",
+      "not ${data.azuread_client_config.current.tenant_id}, where the application would be registered. ",
+      "Point both providers at one tenant.",
+    ])
+  }
+}
+
+locals {
+  application_tenant = lower(data.azuread_client_config.current.tenant_id)
+
+  subscriptions_in_another_tenant = sort([
+    for id, subscription in data.azurerm_subscription.additional : id
+    if lower(subscription.tenant_id) != local.application_tenant
+  ])
+
+  # The data source has no tenant_id; its tenant_scoped_id reads
+  # /tenants/<tenant>/providers/Microsoft.Management/managementGroups/<name>, built from the azurerm
+  # provider's tenant. A value of another shape yields "" and fails the check rather than erroring.
+  management_groups_in_another_tenant = sort([
+    for id, group in data.azurerm_management_group.scope : id
+    if lower(try(regex("^/tenants/([^/]+)/providers/Microsoft.Management/managementGroups/", group.tenant_scoped_id)[0], "")) != local.application_tenant
+  ])
 }
 
 resource "azuread_application" "costfluent" {
@@ -94,6 +142,37 @@ resource "azurerm_role_assignment" "costfluent" {
   # A freshly created service principal has not replicated across Entra yet, so the ARM-side
   # existence check fails intermittently on a first apply. The principal is created above in the
   # same graph, so the check adds nothing but flakiness.
+  skip_service_principal_aad_check = true
+}
+
+# The same roles on each further subscription, keyed <subscription>/<role>. Keys come from the
+# inputs, never from data-source attributes, so they are known at plan; and subscription_id keeps
+# its own resource above, whose role-name keys an upgrade must not change.
+resource "azurerm_role_assignment" "additional_subscriptions" {
+  for_each = { for pair in setproduct(var.additional_subscription_ids, toset(var.role_definition_names)) : "${pair[0]}/${pair[1]}" => { scope = pair[0], role = pair[1] } }
+
+  scope                = data.azurerm_subscription.additional[each.value.scope].id
+  role_definition_name = each.value.role
+  principal_id         = azuread_service_principal.costfluent.object_id
+  principal_type       = "ServicePrincipal"
+  description          = "Read-only Azure Cost Management access for Costfluent, scoped to subscription ${each.value.scope}."
+
+  # As above: the principal is created in the same graph.
+  skip_service_principal_aad_check = true
+}
+
+# The same roles on each management group, inherited by every subscription under it, keyed
+# <group>/<role>.
+resource "azurerm_role_assignment" "management_groups" {
+  for_each = { for pair in setproduct(var.management_group_ids, toset(var.role_definition_names)) : "${pair[0]}/${pair[1]}" => { scope = pair[0], role = pair[1] } }
+
+  scope                = data.azurerm_management_group.scope[each.value.scope].id
+  role_definition_name = each.value.role
+  principal_id         = azuread_service_principal.costfluent.object_id
+  principal_type       = "ServicePrincipal"
+  description          = "Read-only Azure Cost Management access for Costfluent, scoped to management group ${each.value.scope} and the subscriptions under it."
+
+  # As above: the principal is created in the same graph.
   skip_service_principal_aad_check = true
 }
 
